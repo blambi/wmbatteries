@@ -25,9 +25,18 @@
  *
  */
 
-#define THERMAL_FILE "/proc/acpi/thermal_zone/THM0/temperature"
-#define BAT0_STATE_FILE "/proc/acpi/battery/BAT0/state"
-#define BAT1_STATE_FILE "/proc/acpi/battery/BAT1/state"
+#define THERMAL_FILE "/sys/class/thermal/thermal_zone0/temp"
+
+#define BAT0_PATH "/sys/class/power_supply/BAT0/"
+#define BAT1_PATH "/sys/class/power_supply/BAT1/"
+
+#define BAT0_STATUS_FILE "/sys/class/power_supply/BAT0/status"
+#define BAT0_CHARGE_FULL_FILE "/sys/class/power_supply/BAT0/charge_full"
+#define BAT0_CHARGE_NOW_FILE "/sys/class/power_supply/BAT0/charge_now"
+#define BAT1_STATUS_FILE "/sys/class/power_supply/BAT0/status"
+#define BAT1_CHARGE_FULL_FILE "/sys/class/power_supply/BAT0/charge_full"
+#define BAT1_CHARGE_NOW_FILE "/sys/class/power_supply/BAT0/charge_now"
+
 #define BAT0_INFO_FILE "/proc/acpi/battery/BAT0/info"
 #define BAT1_INFO_FILE "/proc/acpi/battery/BAT1/info"
-#define AC_STATE_FILE "/proc/acpi/ac_adapter/AC/state"
+#define AC_STATE_FILE "/sys/class/power_supply/ADP1/online" // AC on some machines..

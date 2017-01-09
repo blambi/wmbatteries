@@ -49,7 +49,7 @@
 
 #define RATE_HISTORY 10
 #define BLINK_ONLOADING_TIMEOUT 500
-#define SIZE	    58
+#define SIZE        58
 #define MAXSTRLEN   512
 #define WINDOWED_BG ". c #AEAAAE"
 #define MAX_HISTORY 16
@@ -80,10 +80,6 @@
 #define DEBUGSTRING(STRING)
 #endif
 
-# ifdef linux
-#  define ACPIDEV "/proc/acpi/info"
-# endif
-
 typedef struct AcpiInfos {
   const char driver_version[10];
   int        ac_line_status;
@@ -92,16 +88,16 @@ typedef struct AcpiInfos {
   long       rate[2];
   long       remain[2];
   long       currcap[2];
-  int	       thermal_temp;
-  int	       thermal_state;
-  int	       hours_left;
-  int	       minutes_left;
+  int          thermal_temp;
+  int          thermal_state;
+  int          hours_left;
+  int          minutes_left;
   int          low;
 } AcpiInfos;
 
 typedef struct RateListElem {
   long rate[2];
-  struct RateListElem *next;	
+  struct RateListElem *next;
 } RateListElem;
 
 typedef enum { LIGHTOFF, LIGHTON } light;
@@ -124,13 +120,14 @@ static unsigned alarm_level_temp  = 70;
 static char     *notif_cmd        = NULL;
 static char     *suspend_cmd      = NULL;
 static char     *standby_cmd      = NULL;
-static int 	mode			  = TEMP;
-static int 	togglemode		  = TOGGLEMODE;
-static int 	togglespeed		  = TOGGLESPEED;
-static int 	animationspeed    = 500;
+static int      mode                      = TEMP;
+static int      togglemode                = TOGGLEMODE;
+static int      togglespeed               = TOGGLESPEED;
+static int      animationspeed    = 500;
 static AcpiInfos cur_acpi_infos;
 static number_of_batteries = 2;
-static char state_files[2][256]={BAT0_STATE_FILE,BAT1_STATE_FILE};
+static char battery_paths[2][256]={BAT0_PATH, BAT1_PATH};
+static char battery_status_files[2][256]={BAT0_STATUS_FILE, BAT1_STATUS_FILE};
 static char info_files[2][256]={BAT0_INFO_FILE,BAT1_INFO_FILE};
 static char thermal[256]=THERMAL_FILE;
 static char ac_state[256]=AC_STATE_FILE;
@@ -179,7 +176,7 @@ static void debug(char *debug_string){
 }
 
 int main(int argc, char **argv) {
-	
+
   XEvent   event;
   XpmColorSymbol colors[2] = { {"Back0", NULL, 0}, {"Back1", NULL, 0} };
   int      ncolor = 0;
@@ -258,7 +255,7 @@ int main(int argc, char **argv) {
   pixmap = dockapp_XCreatePixmap(SIZE, SIZE);
 
   /* Initialize pixmap */
-  if (backlight == LIGHTON) 
+  if (backlight == LIGHTON)
     dockapp_copyarea(backdrop_on, pixmap, 0, 0, SIZE, SIZE, 0, 0);
   else
     dockapp_copyarea(backdrop_off, pixmap, 0, 0, SIZE, SIZE, 0, 0);
@@ -274,13 +271,13 @@ int main(int argc, char **argv) {
   while (1) {
     if (cur_acpi_infos.battery_status[0]==CHARGING || cur_acpi_infos.battery_status[1]==CHARGING)
       charging = 1;
-    else 
+    else
       charging = 0;
     timeout = update_timeout;
     if( charging && animation_timeout<update_timeout){
       if(animation_timeout<toggle_timeout)
-	timeout = animation_timeout;
-      else if(togglemode) timeout = toggle_timeout;	
+        timeout = animation_timeout;
+      else if(togglemode) timeout = toggle_timeout;
     } else if(update_timeout<toggle_timeout)
       timeout = update_timeout;
     else if(togglemode) timeout = toggle_timeout;
@@ -288,47 +285,47 @@ int main(int argc, char **argv) {
       /* Next Event */
       switch (event.type) {
       case ButtonPress:
-	switch (event.xbutton.button) {
-	case 1: switch_light(); break;
-	case 3: mode=!mode; draw_all();dockapp_copy2window(pixmap);break;
-	default: break;
-	}
-	break;
+        switch (event.xbutton.button) {
+        case 1: switch_light(); break;
+        case 3: mode=!mode; draw_all();dockapp_copy2window(pixmap);break;
+        default: break;
+        }
+        break;
       default: break;
       }
     } else {
       /* Time Out */
       update_timeout -= timeout;
       animation_timeout -= timeout;
-      toggle_timeout -= timeout; 
+      toggle_timeout -= timeout;
       if(toggle_timeout<=0){
-	toggle_timeout = togglespeed*1000;
-	if(togglemode){
-	  mode=!mode;
-	  show = 1;
-	}
+        toggle_timeout = togglespeed*1000;
+        if(togglemode){
+          mode=!mode;
+          show = 1;
+        }
       }
       if(animation_timeout<=0){
-	animation_timeout = animationspeed;	
-	if(charging){
-	  blink_batt();
-	  show = 1;
-	}
+        animation_timeout = animationspeed;
+        if(charging){
+          blink_batt();
+          show = 1;
+        }
       }
       if(update_timeout<=0){
-	update();
-	show = 1;
-	update_timeout = update_interval*1000;
-      }            		
+        update();
+        show = 1;
+        update_timeout = update_interval*1000;
+      }
       if(show) {
-	/* show */
-	draw_all();
-	if(charging) {
-	  blink_pos--;
-	  blink_batt();
-	}
-	dockapp_copy2window(pixmap);
-	show = 0;
+        /* show */
+        draw_all();
+        if(charging) {
+          blink_pos--;
+          blink_batt();
+        }
+        dockapp_copy2window(pixmap);
+        show = 0;
       }
     }
   }
@@ -338,52 +335,58 @@ int main(int argc, char **argv) {
 
 
 int init_stats(AcpiInfos *k) {
-  int bat_status[2]={NONE,NONE};
+  int bat_status[2]={NONE, NONE};
   FILE *fd;
+  char *file_buf;
   char *buf;
   char *ptr;
   char present;
   int bat;
   int hist;
   int i;
+  int charge_full;
+  int charge_now;
 
   buf=(char *)malloc(sizeof(char)*512);
   if(buf == NULL)
     exit(-1);
+
+  file_buf=(char *)malloc(sizeof(char)*512);
+  if(file_buf == NULL)
+      exit(-2);
   /* get info about existing batteries */
   number_of_batteries=0;
-  for(i=0;i<2;i++){
-    if((fd = fopen(state_files[i], "r"))){
-      fread(buf,512,1,fd);
+  for(i=0; i<2; i++){
+    snprintf(file_buf, sizeof(char)*512, "%s/present", battery_paths[i]);
+    if((fd = fopen(file_buf, "r"))){
+      present = fgetc(fd);
       fclose(fd);
-      if(ptr = strstr(buf,"present:")) {
-	present=*(ptr+25);
-	if(present == 'y'){
-	  bat_status[i]|=STATE_OK;
-	}
-      }
-      if(ptr = strstr(buf,"present rate:")) {
-	present=*(ptr+25);
-	sscanf(ptr,"%d",&k->rate[bat]);
-      }
-    }
-    if((fd = fopen(info_files[i], "r"))){
-      fread(buf,512,1,fd);
-      fclose(fd);
-      if(ptr = strstr(buf,"present:")) {
-	present=*(ptr+25);
-	if(present == 'y'){
-	  bat_status[i]|=INFO_OK;
-	}
-      }
-      if(ptr = strstr(buf,"last full capacity:")) {
-	present=*(ptr+25);
-	sscanf(ptr,"%d",&k->currcap[bat]);
+      if(present == '1') {
+        bat_status[i] = BAT_OK;
       }
     }
 
-
+    snprintf(file_buf, sizeof(char)*512, "%s/charge_now", battery_paths[i]);
+    if((fd = fopen(file_buf, "r"))){
+      fscanf(fd, "%d", &charge_now);
+      fclose(fd);
+      k->rate[bat] = charge_now; // WTF: where did bat come from, lets keep it for first run..
+    }
+    // FIXME: Fix present rate/charge?
+    // It was:
+    /*if(ptr = strstr(buf,"present rate:")) {
+      present=*(ptr+25);
+      sscanf(ptr,"%d",&k->rate[bat]);
+    }*/
+    // So we might need to calc rate somehow..
+    snprintf(file_buf, sizeof(char)*512, "%s/charge_full", battery_paths[i]);
+    if((fd = fopen(file_buf, "r"))){
+      fscanf(fd, "%d", &charge_full);
+      fclose(fd);
+      k->currcap[bat] = charge_full; // WTF: where did bat come from, lets keep it for first run..
+    }
   }
+
   if(bat_status[0]==BAT_OK && bat_status[1]==BAT_OK){
     printf("BAT0 and BAT1 ok\n");
     number_of_batteries=2;
@@ -393,18 +396,18 @@ int init_stats(AcpiInfos *k) {
   } else if(bat_status[1]==BAT_OK) {
     printf("BAT1 ok\n");
     number_of_batteries=1;
-    strcpy(state_files[0],state_files[1]);
+    strcpy(battery_status_files[0],battery_status_files[1]);
     strcpy(info_files[0],info_files[1]);
     k->currcap[0] = k->currcap[1];
     k->rate[0] = k->rate[1];
   }
 
-  printf("%i batter%s found in system\n",number_of_batteries,number_of_batteries==1 ? "y" : "ies");
+  printf("%i batter%s found in system\n", number_of_batteries, number_of_batteries==1 ? "y" : "ies");
 
   // initialize buffer
   if ((rateElements = (RateListElem *) malloc(history_size * sizeof(RateListElem))) == NULL)
     exit(-1);
-      
+
   firstRateElem = rateElements;
 
 
@@ -415,16 +418,16 @@ int init_stats(AcpiInfos *k) {
       fread(buf,512,1,fd);
       fclose(fd);
       if(ptr = strstr(buf,"last full capacity:")) {
-	ptr += 25;
-	sscanf(ptr,"%d",&k->currcap[bat]);
+        ptr += 25;
+        sscanf(ptr,"%d",&k->currcap[bat]);
       }
-    } 
-    if ((fd = fopen(state_files[bat], "r"))) {
+    }
+    if ((fd = fopen(battery_status_files[bat], "r"))) {
       fread(buf,512,1,fd);
       fclose(fd);
       if(ptr = strstr(buf,"present rate:")) {
-	ptr += 25;
-	sscanf(ptr,"%d",&k->rate[bat]);
+        ptr += 25;
+        sscanf(ptr,"%d",&k->rate[bat]);
       }
     }
 
@@ -436,9 +439,10 @@ int init_stats(AcpiInfos *k) {
       (*(rateElements+hist)).rate[i] = k->rate[i];
     }
     (*(rateElements+history_size-1)).next = rateElements;
-    (*(rateElements+history_size-1)).rate[i] = k->rate[i];    
+    (*(rateElements+history_size-1)).rate[i] = k->rate[i];
   }
   free(buf);
+  free(file_buf);
   k->ac_line_status = 0;
   k->battery_status[0] = 0;
   k->battery_percentage[0] = 0;
@@ -467,7 +471,7 @@ static void update() {
       my_system(notif_cmd);
     }
     if ( (switch_authorized) ||
-	 ( (! switch_authorized) && (backlight != pre_backlight) ) ) {
+         ( (! switch_authorized) && (backlight != pre_backlight) ) ) {
       switch_light();
       return;
     }
@@ -476,8 +480,8 @@ static void update() {
     if (in_alarm_mode) {
       in_alarm_mode = False;
       if (backlight != pre_backlight) {
-	switch_light();
-	return;
+        switch_light();
+        return;
       }
     }
   }
@@ -516,16 +520,16 @@ static void parse_config_file(char *config){
       DEBUGSTRING("trying config file in your $HOME dir\n");
       DEBUGSTRING(stringbuffer);
       if((fd = fopen(stringbuffer, "r"))){
-    	DEBUGSTRING("config file found\n");
+        DEBUGSTRING("config file found\n");
       } else {
-	DEBUGSTRING("config file in $HOME dir nonexistant\n");
-	DEBUGSTRING("trying global one in /etc\n");	
-	if((fd = fopen("/etc/wmbatteries", "r"))){
-	  DEBUGSTRING("config file found\n");
-	}
-	else {
-	  DEBUGSTRING("no config file found. ignoring\n");
-	}
+        DEBUGSTRING("config file in $HOME dir nonexistant\n");
+        DEBUGSTRING("trying global one in /etc\n");
+        if((fd = fopen("/etc/wmbatteries", "r"))){
+          DEBUGSTRING("config file found\n");
+        }
+        else {
+          DEBUGSTRING("no config file found. ignoring\n");
+        }
       }
     }
 
@@ -533,111 +537,111 @@ static void parse_config_file(char *config){
     DEBUGSTRING("begin parsing\n");
     while( fgets( line, 255, fd ) != NULL )
     {
-      
+
         item = strtok( line, "\t =\n\r" ) ;
         if( item != NULL && item[0] != '#' )
         {
             value = strtok( NULL, "\t =\n\r" ) ;
-	    if(!strcmp(item,"backlight")){
-	      if(strcasecmp(value,"yes") && strcasecmp(value,"true") && strcasecmp(value,"false") && strcasecmp(value,"no")) {
-		printf("backlight option wrong in line %i,use yes/no or true/false\n",linenr);
-	      } else {
-		if(!strcasecmp(value,"true") || !strcasecmp(value,"yes")){
-		  backlight = LIGHTON;
-		} else {
-		  backlight = LIGHTOFF;
-		}
-	      }	    
-	    }
+            if(!strcmp(item,"backlight")){
+              if(strcasecmp(value,"yes") && strcasecmp(value,"true") && strcasecmp(value,"false") && strcasecmp(value,"no")) {
+                printf("backlight option wrong in line %i,use yes/no or true/false\n",linenr);
+              } else {
+                if(!strcasecmp(value,"true") || !strcasecmp(value,"yes")){
+                  backlight = LIGHTON;
+                } else {
+                  backlight = LIGHTOFF;
+                }
+              }
+            }
 
-	    if(!strcmp(item,"lightcolor")){
-	      strcpy(light_color,value);
-	    }
+            if(!strcmp(item,"lightcolor")){
+              strcpy(light_color,value);
+            }
 
-	    if(!strcmp(item,"temperature")){
-	      strcpy(thermal,value);
-	    }
+            if(!strcmp(item,"temperature")){
+              strcpy(thermal,value);
+            }
 
-	    if(!strcmp(item,"bat0_state")){
-	      strcpy(state_files[0],value);
-	    }
+            if(!strcmp(item,"bat0_state")){
+              strcpy(battery_status_files[0],value);
+            }
 
-	    if(!strcmp(item,"bat1_state")){
-	      strcpy(state_files[1],value);
-	    }
+            if(!strcmp(item,"bat1_state")){
+              strcpy(battery_status_files[1],value);
+            }
 
-	    if(!strcmp(item,"bat0_info")){
-	      strcpy(info_files[0],value);
-	    }
+            if(!strcmp(item,"bat0_info")){
+              strcpy(info_files[0],value);
+            }
 
-	    if(!strcmp(item,"bat1_info")){
-	      strcpy(info_files[1],value);
-	    }
+            if(!strcmp(item,"bat1_info")){
+              strcpy(info_files[1],value);
+            }
 
-	    if(!strcmp(item,"ac_state")){
-	      strcpy(ac_state,value);
-	    }
+            if(!strcmp(item,"ac_state")){
+              strcpy(ac_state,value);
+            }
 
 
-	    if(!strcmp(item,"updateinterval")){
-	      tmp=atoi(value);
-	      if(tmp<1) {
-		printf("update interval is out of range in line %i,must be > 0\n",linenr);
-	      } else {
-		update_interval=tmp;
-	      }
-	    }
+            if(!strcmp(item,"updateinterval")){
+              tmp=atoi(value);
+              if(tmp<1) {
+                printf("update interval is out of range in line %i,must be > 0\n",linenr);
+              } else {
+                update_interval=tmp;
+              }
+            }
 
-	    if(!strcmp(item,"alarm")){
-	      tmp=atoi(value);
-	      if(tmp<1 || tmp>100) {
-		printf("alarm is out of range in line %i,must be > 0 and <= 100\n",linenr);
-	      } else {
-		alarm_level=tmp;
-	      }
-	    }
+            if(!strcmp(item,"alarm")){
+              tmp=atoi(value);
+              if(tmp<1 || tmp>100) {
+                printf("alarm is out of range in line %i,must be > 0 and <= 100\n",linenr);
+              } else {
+                alarm_level=tmp;
+              }
+            }
 
-	    if(!strcmp(item,"togglespeed")){
-	      tmp=atoi(value);
-	      if(tmp<1) {
-		printf("togglespeed variable is out of range in line %i,must be > 0\n",linenr);
-	      } else {
-		togglespeed=tmp;
-	      }
-	    }
+            if(!strcmp(item,"togglespeed")){
+              tmp=atoi(value);
+              if(tmp<1) {
+                printf("togglespeed variable is out of range in line %i,must be > 0\n",linenr);
+              } else {
+                togglespeed=tmp;
+              }
+            }
 
-	    if(!strcmp(item,"animationspeed")){
-	      tmp=atoi(value);
-	      if(tmp<100) {
-		printf("animationspeed variable is out of range in line %i,must be >= 100\n",linenr);
-	      } else { 
-		animationspeed=tmp;
-	      }
-	    }
+            if(!strcmp(item,"animationspeed")){
+              tmp=atoi(value);
+              if(tmp<100) {
+                printf("animationspeed variable is out of range in line %i,must be >= 100\n",linenr);
+              } else {
+                animationspeed=tmp;
+              }
+            }
 
-	    if(!strcmp(item,"historysize")){
-	      tmp=atoi(value);
-	      if(tmp<1 || tmp>1000) {
-		printf("historysize variable is out of range in line %i,must be >=1 and <=1000\n",linenr);
-	      } else { 
-		history_size=tmp;
-	      }
-	    }
+            if(!strcmp(item,"historysize")){
+              tmp=atoi(value);
+              if(tmp<1 || tmp>1000) {
+                printf("historysize variable is out of range in line %i,must be >=1 and <=1000\n",linenr);
+              } else {
+                history_size=tmp;
+              }
+            }
 
-	    if(!strcmp(item,"mode")){
-	      if(strcmp(value,"rate") && strcmp(value,"toggle") && strcmp(value,"toggle")) {
-		printf("mode must be one of rate,temp,toggle in line %i\n",linenr);
-	      } else { 
-		if(strcmp(value,"rate")) mode=RATE;
-		if(strcmp(value,"temp")) mode=TEMP;
-		if(strcmp(value,"toggle")) togglemode=1;
-	      }
-	    }
+            if(!strcmp(item,"mode")){
+              if(strcmp(value,"rate") && strcmp(value,"toggle") && strcmp(value,"toggle")) {
+                printf("mode must be one of rate,temp,toggle in line %i\n",linenr);
+              } else {
+                if(strcmp(value,"rate")) mode=RATE;
+                if(strcmp(value,"temp")) mode=TEMP;
+                if(strcmp(value,"toggle")) togglemode=1;
+              }
+            }
 
 
 
         }
-	linenr++;
+        linenr++;
     }
     fclose(fd);
     DEBUGSTRING("end parsing\n");
@@ -650,9 +654,9 @@ static void draw_all(){
   long allremain=0;
   long allcapacity=0;
   /* all clear */
-  if (backlight == LIGHTON) 
+  if (backlight == LIGHTON)
     dockapp_copyarea(backdrop_on, pixmap, 0, 0, 58, 58, 0, 0);
-  else 
+  else
     dockapp_copyarea(backdrop_off, pixmap, 0, 0, 58, 58, 0, 0);
   /* draw digit */
   draw_remaining_time(cur_acpi_infos);
@@ -662,7 +666,7 @@ static void draw_all(){
   draw_pcgraph(cur_acpi_infos);
 
   if(cur_acpi_infos.low) draw_low();
-  
+
   draw_batt(cur_acpi_infos);
 }
 
@@ -701,7 +705,7 @@ static void draw_batt(AcpiInfos infos){
   int i=0;
   if (backlight == LIGHTON) y = 28;
   for(i=0;i<number_of_batteries;i++){
-    if(infos.battery_status[i]==DISCHARGING){	
+    if(infos.battery_status[i]==DISCHARGING){
       dockapp_copyarea(parts, pixmap,33+y , 63, 9, 5, 16+i*11, 39);
     }
   }
@@ -757,7 +761,7 @@ static void blink_batt(){
     if(cur_acpi_infos.battery_status[bat]==CHARGING){
       dockapp_copyarea(parts, pixmap, blink_pos*9+light_offset , 117, 9, 5,  16+bat*11, 39);
     }
-  }    
+  }
 }
 
 
@@ -798,7 +802,7 @@ static void draw_pcgraph(AcpiInfos infos) {
     light_offset=5;
   }
   for(bat=0;bat<number_of_batteries;bat++){
-    width = (infos.battery_percentage[bat]*32)/100;	
+    width = (infos.battery_percentage[bat]*32)/100;
     dockapp_copyarea(parts, pixmap, 0, 58+light_offset, width, 5, 5, 26+6*bat);
     if(infos.battery_percentage[bat] == 100){ // don't display leading 0
       dockapp_copyarea(parts, pixmap, 4*(infos.battery_percentage[bat]/100), 126+light_offset, 3, 5, 38, 26+6*bat);
@@ -806,7 +810,7 @@ static void draw_pcgraph(AcpiInfos infos) {
     if(infos.battery_percentage[bat] > 9){ //don't display leading 0
       dockapp_copyarea(parts, pixmap, 4*((infos.battery_percentage[bat]%100)/10), 126+light_offset, 3, 5, 42, 26+6*bat);
     }
-    dockapp_copyarea(parts, pixmap, 4*(infos.battery_percentage[bat]%10), 126+light_offset, 3, 5, 46, 26+6*bat);		
+    dockapp_copyarea(parts, pixmap, 4*(infos.battery_percentage[bat]%10), 126+light_offset, 3, 5, 46, 26+6*bat);
   }
 
 }
@@ -843,26 +847,26 @@ static void parse_arguments(int argc, char **argv) {
       i++;
     } else if (!strcmp(argv[i], "--interval") || !strcmp(argv[i], "-i")) {
       if (argc == i + 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (sscanf(argv[i + 1], "%i", &integer) != 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (integer < 1)
-	fprintf(stderr, "%s: argument %s must be >=1\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: argument %s must be >=1\n",
+                argv[0], argv[i]), exit(1);
       update_interval = integer;
       i++;
     } else if (!strcmp(argv[i], "--alarm") || !strcmp(argv[i], "-a")) {
       if (argc == i + 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (sscanf(argv[i + 1], "%i", &integer) != 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if ( (integer < 0) || (integer > 100) )
-	fprintf(stderr, "%s: argument %s must be >=0 and <=100\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: argument %s must be >=0 and <=100\n",
+                argv[0], argv[i]), exit(1);
       alarm_level = integer;
       i++;
     } else if (!strcmp(argv[i], "--windowed") || !strcmp(argv[i], "-w")) {
@@ -877,53 +881,53 @@ static void parse_arguments(int argc, char **argv) {
       i++;
     } else if (!strcmp(argv[i], "--togglespeed") || !strcmp(argv[i], "-ts")) {
       if (argc == i + 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (sscanf(argv[i + 1], "%i", &integer) != 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if ( integer < 1)
-	fprintf(stderr, "%s: argument %s must be positive integer\n",
-		argv[0], argv[i],update_interval), exit(1);
-      togglespeed=integer;                        
-      i++;                        
+        fprintf(stderr, "%s: argument %s must be positive integer\n",
+                argv[0], argv[i],update_interval), exit(1);
+      togglespeed=integer;
+      i++;
     } else if (!strcmp(argv[i], "--animationspeed") || !strcmp(argv[i], "-as")) {
       if (argc == i + 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (sscanf(argv[i + 1], "%i", &integer) != 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (integer < 100)
-	fprintf(stderr, "%s: argument %s must be >=100\n",
-		argv[0], argv[i]), exit(1);
-      animationspeed=integer;            
-      i++;                                                                       
+        fprintf(stderr, "%s: argument %s must be >=100\n",
+                argv[0], argv[i]), exit(1);
+      animationspeed=integer;
+      i++;
     } else if (!strcmp(argv[i], "--historysize") || !strcmp(argv[i], "-hs")) {
       if (argc == i + 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (sscanf(argv[i + 1], "%i", &integer) != 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (integer < 1 || integer > 1000)
-	fprintf(stderr, "%s: argument %s must be >=1 && <=1000\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: argument %s must be >=1 && <=1000\n",
+                argv[0], argv[i]), exit(1);
       history_size=integer;
-      i++;                                                                       
+      i++;
     } else if (!strcmp(argv[i], "--mode") || !strcmp(argv[i], "-m")) {
       if (argc == i + 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (sscanf(argv[i + 1], "%c", &character) != 1)
-	fprintf(stderr, "%s: error parsing argument for option %s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: error parsing argument for option %s\n",
+                argv[0], argv[i]), exit(1);
       if (!(character=='t' || character=='r' || character=='s'))
-	fprintf(stderr, "%s: argument %s must be t,r or s\n",
-		argv[0], argv[i]), exit(1);
+        fprintf(stderr, "%s: argument %s must be t,r or s\n",
+                argv[0], argv[i]), exit(1);
       if(character=='s') togglemode=1;
       else if(character=='t') mode=TEMP;
-      else if(character=='r') mode=RATE;	
+      else if(character=='r') mode=RATE;
       i++;
     } else if (!strcmp(argv[i], "--standby") || !strcmp(argv[i], "-S")) {
       standby_cmd = argv[i + 1];
@@ -939,28 +943,28 @@ static void parse_arguments(int argc, char **argv) {
 static void print_help(char *prog)
 {
   printf("Usage : %s [OPTIONS]\n"
-	 "%s - Window Maker mails monitor dockapp\n"
-	 "  -d,  --display <string>        display to use\n"
-	 "  -bl, --backlight               turn on back-light\n"
-	 "  -lc, --light-color <string>    back-light color(rgb:6E/C6/3B is default)\n"
-	 "  -c,  --config <string>         set filename of config file\n"
-	 "  -i,  --interval <number>       number of secs between updates (1 is default)\n"
-	 "  -a,  --alarm <number>          low battery level when to raise alarm\n"
-	 "                                 (20 is default)\n"
-	 "  -h,  --help                    show this help text and exit\n"
-	 "  -v,  --version                 show program version and exit\n"
-	 "  -w,  --windowed                run the application in windowed mode\n"
-	 "  -bw, --broken-wm               activate broken window manager fix\n"
-	 "  -n,  --notify <string>         command to launch when alarm is on\n"
-	 "  -s,  --suspend <string>        set command for acpi suspend\n"
-	 "  -S,  --standby <string>        set command for acpi standby\n"
-	 "  -m,  --mode [t|r|s]            set mode for the lower row , \n"
-	 "                                 t=temperature,r=current rate,s=toggle\n"
-	 "  -ts  --togglespeed <int>       set toggle speed in seconds\n"           
-	 "  -as  --animationspeed <int>    set speed for charging animation in msec\n"           
-	 "  -hs  --historysize <int>       set size of history for calculating\n"
-	 "                                 average power consumption rate\n",           
-	 prog, prog);
+         "%s - Window Maker mails monitor dockapp\n"
+         "  -d,  --display <string>        display to use\n"
+         "  -bl, --backlight               turn on back-light\n"
+         "  -lc, --light-color <string>    back-light color(rgb:6E/C6/3B is default)\n"
+         "  -c,  --config <string>         set filename of config file\n"
+         "  -i,  --interval <number>       number of secs between updates (1 is default)\n"
+         "  -a,  --alarm <number>          low battery level when to raise alarm\n"
+         "                                 (20 is default)\n"
+         "  -h,  --help                    show this help text and exit\n"
+         "  -v,  --version                 show program version and exit\n"
+         "  -w,  --windowed                run the application in windowed mode\n"
+         "  -bw, --broken-wm               activate broken window manager fix\n"
+         "  -n,  --notify <string>         command to launch when alarm is on\n"
+         "  -s,  --suspend <string>        set command for acpi suspend\n"
+         "  -S,  --standby <string>        set command for acpi standby\n"
+         "  -m,  --mode [t|r|s]            set mode for the lower row , \n"
+         "                                 t=temperature,r=current rate,s=toggle\n"
+         "  -ts  --togglespeed <int>       set toggle speed in seconds\n"
+         "  -as  --animationspeed <int>    set speed for charging animation in msec\n"
+         "  -hs  --historysize <int>       set size of history for calculating\n"
+         "                                 average power consumption rate\n",
+         prog, prog);
   /* OPTIONS SUPP :
    *  ? -f, --file    : configuration file
    */
@@ -985,7 +989,7 @@ static void acpi_getinfos(AcpiInfos *infos) {
 
 
 int acpi_exists() {
-  if (access(ACPIDEV, R_OK))
+  if (access(THERMAL_FILE, R_OK))
     return 0;
   else
     return 1;
@@ -1015,18 +1019,19 @@ static int my_system (char *cmd) {
   return 0;
 }
 
-
 #ifdef linux
 
 int acpi_read(AcpiInfos *i) {
   FILE        *fd;
   int         retcode = 0;
-  int 	capacity[2],remain[2];
+  int   capacity[2],remain[2];
   int bat;
-  char 	*buf;
-  char 	*ptr;
-  char 	stat;
-  buf=(char *)malloc(sizeof(char)*512);
+  char  *buf;
+  char *file_buf;
+  char  *ptr;
+  char  stat;
+  char ac_buf;
+  int temp_buf;
   RateListElem currRateElement;
   int hist;
   long rate;
@@ -1034,69 +1039,97 @@ int acpi_read(AcpiInfos *i) {
   long allcapacity=0;
   long allremain=0;
 
+  int capacity_remaining[2];
+  
+  buf=(char *)malloc(sizeof(char)*512);
+  file_buf=(char *)malloc(sizeof(char)*512);
   rate = 0;
-  
-  
+
+
   DEBUGSTRING("acpi_read()\n")
 
   /* get acpi thermal cpu info */
   if ((fd = fopen(thermal, "r"))) {
-    fscanf(fd, "temperature: %d", &i->thermal_temp);
-    fclose(fd);
+      fscanf(fd, "%d", &temp_buf);
+      fclose(fd);
+      i->thermal_temp = temp_buf / 1000; // 32400 => 32°C
   }
   if ((fd = fopen(ac_state, "r"))) {
-    bzero(buf, 512);
-    fscanf(fd, "state: %s", buf);
-    fclose(fd);
-    if(strstr(buf, "on-line") != NULL) i->ac_line_status=1;
-    if(strstr(buf, "off-line") != NULL) i->ac_line_status=0;
+      // Read first char only since status is 1/0
+      ac_buf = fgetc(fd);
+      fclose(fd);
+
+      if(ac_buf == '1') i->ac_line_status=1;
+      if(ac_buf == '0' || ac_buf == EOF) i->ac_line_status=0;
   }
   for(bat=0;bat<number_of_batteries;bat++){
-  
-    if ((fd = fopen(state_files[bat], "r"))) {
+      // Capacity is the procentage left as int
+      snprintf(file_buf, sizeof(char)*512, "%s/capacity", battery_paths[bat]);
+      if((fd = fopen(file_buf, "r"))){
+          fscanf(fd, "%d", &capacity_remaining[bat]);
+          fclose(fd);
+          i->battery_percentage[bat] = capacity_remaining[bat];
+      }
+
+      // Get charge state/status
+      snprintf(file_buf, sizeof(char)*512, "%s/status", battery_paths[bat]);
+      if((fd = fopen(file_buf, "r"))){
+          fscanf(fd, "%s", buf);
+          printf("%s\n", buf);
+          fclose(fd);
+
+          if (strcmp(buf, "Full") == 0) {
+              i->battery_status[bat] = 0; // Not sure but lets try
+          }
+          else if (strcmp(buf, "Discharging") == 0) {
+              i->battery_status[bat] = 3;
+          }
+          else if (strcmp(buf, "Charging") == 0) {
+              i->battery_status[bat] = 3;
+          }
+      }
+      
+    if ((fd = fopen(battery_status_files[bat], "r")) && 1 == 2) {
       bzero(buf, 512);
       fread(buf,512,1,fd);
       fclose(fd);
       if(( ptr = strstr(buf,"charging state:"))) {
-	stat = *(ptr + 25);
-	switch (stat) 
-	  {
-	  case 'd':
-	    i->battery_status[bat]=1;
-	    break;
-	  case 'c':
-	    i->battery_status[bat]=3;
-	    break;
-	  case 'u':
-	    i->battery_status[bat]=0;
-	    break;
-	  }
+        stat = *(ptr + 25);
+        switch (stat)
+          {
+          case 'd':
+            i->battery_status[bat]=1;
+            break;
+          case 'c':
+            i->battery_status[bat]=3;
+            break;
+          case 'u':
+            i->battery_status[bat]=0;
+            break;
+          }
       }
       if ((ptr = strstr (buf, "remaining capacity:"))) {
-	ptr += 25;
-	sscanf(ptr,"%d",&i->remain[bat]);
+        ptr += 25;
+        sscanf(ptr,"%d",&i->remain[bat]);
       }
       if ((ptr = strstr (buf, "present rate:"))) {
-	ptr += 25;
-	sscanf(ptr,"%d",&((*firstRateElem).rate[bat]));
+        ptr += 25;
+        sscanf(ptr,"%d",&((*firstRateElem).rate[bat]));
       }
     }
-     
-    i->battery_percentage[bat] = (((float)(i->remain[bat])*100)/cur_acpi_infos.currcap[bat]);
-
 
 
     currRateElement = *firstRateElem;
     if(currRateElement.rate[bat]!=0){
       for(hist=0;hist<history_size;hist++){
-	if(currRateElement.rate[bat]!=0){
-	  rate += currRateElement.rate[bat];
-	} else rate+= (*firstRateElem).rate[bat];
-	currRateElement = *currRateElement.next;
+        if(currRateElement.rate[bat]!=0){
+          rate += currRateElement.rate[bat];
+        } else rate+= (*firstRateElem).rate[bat];
+        currRateElement = *currRateElement.next;
       }
     } else {
       rate=0;
-      i->rate[bat]=0;	
+      i->rate[bat]=0;
     }
 
 
@@ -1109,17 +1142,18 @@ int acpi_read(AcpiInfos *i) {
   if((i->battery_status[0]==1 || i->battery_status[1]==1) && (i->rate[0]+i->rate[1])>0){
     time = (float)(i->remain[0]+i->remain[1])/(float)(i->rate[0]+i->rate[1]);
     i->hours_left=(int)time;
-    i->minutes_left=(int)((time-(int)time)*60);	
+    i->minutes_left=(int)((time-(int)time)*60);
   }
   if(i->battery_status[0]==0 && i->battery_status[1]==0){
     i->hours_left=0;
-    i->minutes_left=0;	
+    i->minutes_left=0;
   }
   if((i->battery_status[0]==3||i->battery_status[1]==3) && (i->rate[0]>0 || i->rate[1]>0)){
     time = (float)(cur_acpi_infos.currcap[0] - i->remain[0] + cur_acpi_infos.currcap[1] - i->remain[1])/(float)(i->rate[0]+i->rate[1]);
     i->hours_left=(int)time;
     i->minutes_left=(int)(60*(time-(int)time));
   }
+
   for(bat=0;bat<number_of_batteries;bat++){
     allremain += i->remain[bat];
     allcapacity += cur_acpi_infos.currcap[bat];
@@ -1127,14 +1161,15 @@ int acpi_read(AcpiInfos *i) {
 
   cur_acpi_infos.low=0;
   if(allcapacity>0){
-    if(((double)allremain/(double)allcapacity)*100<alarm_level){ 
+    if(((double)allremain/(double)allcapacity)*100<alarm_level){
       cur_acpi_infos.low=1;
     }
-  } 
+  }
 
-  DEBUGSTRING("MID acpi_read()\n") 
-  firstRateElem = ((*firstRateElem).next);	
+  DEBUGSTRING("MID acpi_read()\n")
+  firstRateElem = ((*firstRateElem).next);
   free(buf);
+  free(file_buf);
   DEBUGSTRING("END acpi_read()\n")
   return retcode;
 }
